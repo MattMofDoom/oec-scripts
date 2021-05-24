@@ -62,6 +62,35 @@ def get_transition_id(request_headers, jira_url, transition_name, token):
     else:
         logging.debug(LOG_PREFIX + " Transition id is empty")
 
+def get_alert(opsgenieUrl, api_Key, alert_id):
+    headers = {
+        "Content-Type": "application/json",
+        "Accept-Language": "application/json",
+        "Authorization": "GenieKey " + args.get('apiKey')
+    }
+    
+    alert_api_url = opsgenieUrl + "/v2/alerts/" + alert_id + '?identifierType=id'
+    alert_response = requests.get(alert_api_url, headers=headers, timeout=timeout)
+    if alert_response.status_code < 299:
+        logging.info(LOG_PREFIX + " Successfully requested alert from Opsgenie")
+        logging.debug(
+            LOG_PREFIX + "OpsGenie response: " + str(alert_response.content) + " " + str(
+                alert_response.status_code))
+        return alert_response.json()
+    else:
+        logging.warning(
+            LOG_PREFIX + " Could not execute at Opsgenie; response: " + str(
+                alert_response.content) + " status code: " + str(alert_response.status_code))
+
+
+def get_tags(alert):
+        return alert['data']['tags']
+
+def get_priority(alert):
+    priorities = {"P1":"Highest","P2":"High","P3":"Medium","P4":"Low","P5":"Low"}
+    priorityMap = "{" + alert["data"]["priority"] + "}"
+    logging.debug(priorityMap + ' result: ' + priorityMap.format_map(priorities))
+    return priorityMap.format_map(priorities)
 
 def main():
     global LOG_PREFIX
@@ -111,6 +140,11 @@ def main():
         result_url += "/" + str(issue_key) + "/comment"
     elif mapped_action == "createIssue":
         toLabel = queue_message.get("alias")
+        alert = get_alert(args.get('opsgenieUrl'), args.get('apiKey'), alert_id)
+        priority = get_priority(alert)
+        labels = get_tags(alert)
+        labels.append(toLabel)
+        labels.append("OpsGenie")
         content_params = {
             "fields": {
                 "project": {
@@ -121,7 +155,8 @@ def main():
                 },
                 "summary": queue_message.get("summary"),
                 "description": queue_message.get("description"),
-                "labels": [toLabel.replace("\\s", "")]
+                "priority": { "name": priority },
+                "labels": labels
             }
         }
     elif mapped_action == "resolveIssue":
